@@ -1,0 +1,17 @@
+{
+  "idf.currentSetup": "C:\\Users\\jnsqu\\esp\\v5.5.1\\esp-idf",
+  "idf.openOcdConfigs": [
+    "board/esp32c3-builtin.cfg"
+  ],
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32c3"
+  },
+  "clangd.path": "C:\\Users\\jnsqu\\.espressif\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=d:\\Tufts\\Rocketry\\Solar-Payload\\solarboard_code\\build"
+  ],
+  "idf.flashType": "UART",
+  "idf.portWin": "COM3"
+}
