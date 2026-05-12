@@ -13,9 +13,9 @@ namespace seds {
         // These values are mostly pulled from the ESP IDF example for I2C.
         // The main difference is which GPIO ports are used.
         constexpr auto bus_config = i2c_master_bus_config_t {
-            .i2c_port = I2C_NUM_0,
-            .sda_io_num = GPIO_NUM_33,
-            .scl_io_num = GPIO_NUM_25,
+            .i2c_port = -1, // auto detect
+            .sda_io_num = SDA_IO_NUM,
+            .scl_io_num = SCL_IO_NUM,
             .clk_source = I2C_CLK_SRC_DEFAULT,
             .glitch_ignore_cnt = 7,
             .flags = {

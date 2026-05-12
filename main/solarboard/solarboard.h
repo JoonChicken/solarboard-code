@@ -5,7 +5,7 @@
 #include "esp_err.h"
 #include "errors.h"
 #include "esp_log.h"
-#include "i2c/INA229.h"
+#include "spi/INA229Q1.h"
 #include "i2c/BMI323.h"
 #include "i2c/BMP581.h"
 #include "i2c/I2C.h"
@@ -19,7 +19,10 @@ namespace seds {
     private:
         static constexpr size_t buf_len = MOUNT_POINT_LEN + 1 + 3 + 4 + 4 + 1;
     public:
-        
+        INA229Q1 curr1;
+        INA229Q1 curr2;
+        INA229Q1 curr3;
+        INA229Q1 curr4;
         BMP581 baro;
         BMI323 imu;
         SDCard sd;

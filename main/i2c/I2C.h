@@ -16,6 +16,9 @@
 #include "esp_log.h"
 #include "utils.h"
 
+#define SDA_IO_NUM GPIO_NUM_8
+#define SCL_IO_NUM GPIO_NUM_3
+
 namespace seds {
     using namespace std::chrono_literals;
     using namespace seds::errors;

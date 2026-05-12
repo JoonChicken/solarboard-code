@@ -13,7 +13,7 @@
 // of these functions can either handle the possible error with the std::expected API or propagate
 // it with the TRY macro or crash with a helpful message usage the unwrap function.
 
-/// Returns std::unexpected if the given ESP-IDF call failed.
+// Returns std::unexpected if the given ESP-IDF call failed.
 #define ESP_TRY(x) ({                                                                               \
     esp_err_t err_rc_ = (x);                                                                        \
     if (err_rc_ != ESP_OK) {                                                                        \
