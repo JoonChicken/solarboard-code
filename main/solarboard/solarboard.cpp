@@ -48,7 +48,7 @@ void SolarBoard::process(uint32_t times, bool endless) {
     struct timeval tv_now;
     memset(buffer, 'X', sizeof(buffer));
     size_t idx = 0;
-    for (int i = 0; i < times || endless; i++) {
+    for (int i = 0; endless || i < times; i++) {
         gettimeofday(&tv_now, NULL);
         int64_t time_ms = (int64_t)tv_now.tv_sec * 1000L + (int64_t)tv_now.tv_usec / 1000L;
 

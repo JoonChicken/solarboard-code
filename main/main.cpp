@@ -10,22 +10,27 @@
 #include "i2c/I2C.h"
 #include "errors.h"
 #include "sd.h"
+
+
+// current sensor select pins
+#define CS_1 GPIO_NUM_4
+#define CS_2 GPIO_NUM_20
+#define CS_3 GPIO_NUM_1
+#define CS_4 GPIO_NUM_0
+
+
 static const char *TAG = "main";
 
-#define I2C_PORT_AUTOSELECT -1
-#define I2C_SCL 3
-#define I2C_SDA 8
-
-// Flash pin defines
-#define F_HD_IO_NUM 12
-#define F_WP_IO_NUM 13
-#define F_CS_IO_NUM 14
-#define F_CLK_IO_NUM 15
-#define F_MOSI_IO_NUM 16
-#define F_MISO_IO_NUM 17
+using namespace seds::errors;
 
 extern "C" void app_main(void)
 {
-    ESP_LOGI(TAG, "Hello World!");
+    auto i2c = seds::I2C::create();
+    ESP_LOGI(TAG, "I2C initialized successfully");
 
+    std::shared_ptr<seds::BMP581> barometer = std::make_shared<seds::BMP581();
+
+
+    auto spi = seds::SPI::create();
+    ESP_LOGI(TAG, "SPI initialized successfully");
 }
