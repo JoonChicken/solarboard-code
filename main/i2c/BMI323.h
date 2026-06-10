@@ -1,9 +1,12 @@
 #pragma once
+
 #include "I2C.h"
+#include <memory>
 
 namespace seds {
     using namespace seds::errors;
 
+    // accel units in m/s^2
     struct IMUData {
         float ax;
         float ay;
@@ -13,7 +16,7 @@ namespace seds {
         float gz;
     };  
 
-    class BMI323 {
+    class BMI323 : std::enable_shared_from_this<BMI323> {
     public:
         // Is this an understandable way to do this?
         enum class SensorHz : uint16_t {
@@ -60,6 +63,11 @@ namespace seds {
 
         bool is_connected();
 
+        // always calibrate offset
+        Expected<std::array<uint16_t, 6>> calibrate_gyro(bool calibrate_sens);
+
+        Expected<std::monostate> set_gyro_calib(uint16_t x_off, uint16_t x_gain, uint16_t y_off, uint16_t y_gain, uint16_t z_off, uint16_t z_gain);
+
         [[nodiscard]]
         Expected<std::monostate> set_accel_range(AccelRange range);
 
@@ -68,6 +76,8 @@ namespace seds {
 
         [[nodiscard]]
         Expected<std::monostate> set_sensor_hz(SensorHz hz);
+
+        float get_max_accel();
 
         [[nodiscard]]
         Expected<IMUData> read_imu();

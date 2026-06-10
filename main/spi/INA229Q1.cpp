@@ -93,12 +93,20 @@ namespace seds {
 
         // Set configuration after write in case of failure
         ina.adc_range = ADCRange::_NARROW;
+        ina.temp_comp = TempComp::_OFF;
+        ina.mode = Mode::_SHUTDOWN;
+        ina.conv_time = ConvTime::_50us;
+        ina.avg_count = SampleAvgCount::_1;
         ina.shunt_resistor_val = 0.0;
         ina.max_expected_current = 0.0;
         ina.current_lsb = 0.0;
 
-        // force soft reset
-        // TRY(ina.device.write_be_register<uint16_t>(INA229Q1Register::CONFIG, INA229Q1Masks::RST_msk));
+        // force soft reset (what the hell am I doing)
+        // TRY(
+        ina.device.write_be_register<uint32_t, uint8_t>(
+            static_cast<uint8_t>(INA229Q1Register::CONFIG),
+            static_cast<uint32_t>(INA229Q1Masks::RST_msk)
+        );
         // pause
         vTaskDelay(pdMS_TO_TICKS(10));
 

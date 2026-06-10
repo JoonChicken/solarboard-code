@@ -1,16 +1,12 @@
 #pragma once
 
 #include "I2C.h"
+#include "sensor/barometer.h"
 
 namespace seds {
     using namespace seds::errors;
 
-    struct BarometerData {
-        float baro_temp;
-        float pressure;
-    };
-
-    class BMP581 : std::enable_shared_from_this<BMP581> {
+    class BMP581 : std::enable_shared_from_this<BMP581>, public Barometer {
     public:
         // No default address since there are two, so we should specify each
         static constexpr int16_t address_1 = 0x46;
@@ -26,11 +22,11 @@ namespace seds {
         BMP581& operator=(BMP581 const&) = delete;
 
         /// Check whether the device is a working BMP581 barometer.
-        bool is_connected();
+        bool is_connected() override;
 
         /// Read the last temperature and pressure measurement from the sensor.
         [[nodiscard]]
-        Expected<BarometerData> read_data();
+        Expected<BarometerData> read_data() override;
 
     private:
         explicit BMP581(I2CDevice&& device);

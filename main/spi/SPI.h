@@ -13,6 +13,7 @@
 #include <string>
 #include <bit>
 #include <type_traits>
+#include <stdint.h>
 
 #include "driver/spi_common.h"
 #include "driver/spi_master.h"
@@ -97,7 +98,7 @@ namespace seds {
         /// Generic write-read a byte buffer to the SPI bus.
         /// Bytes that were previously in the register are read back.
         /// Read-only and Write-only versions not necessary for INA229
-        template<size_t WriteN, size_t ReadN>
+        template<size_t ReadN, size_t WriteN>
         Expected<std::array<uint8_t, ReadN>> write_read(
             std::array<uint8_t, WriteN> const& write_buf
         ) {
@@ -136,21 +137,21 @@ namespace seds {
         ///
         /// To make it easier to keep track of register constants, you can pass in a custom register
         /// enum variant as long as it can be statically cast to a `uint8_t`.
+        ///
+        /// Shit dont work so :(
         template<typename WriteT, typename RegisterT>
         [[nodiscard]]
         Expected<std::monostate> write_be_register(RegisterT const reg, WriteT const new_value) {
-            static_assert(std::is_arithmetic_v<WriteT>, "WriteT must be a number");
-
             std::array<uint8_t, 1 + sizeof(WriteT)> write_buf = {
                 static_cast<uint8_t>(reg),
                 // ...temporarily unfilled
             };
 
             // Write new value's bytes into the write buffer.
-            std::ranges::copy(num::to_be_bytes(new_value), &write_buf[1]);
+            std::ranges::copy(num::to_be_bytes(static_cast<uint32_t>(new_value)), &write_buf[1]);
 
             // execute spi write-read, and discard all data read back
-            this->write_read(write_buf);
+            this->write_read<>(write_buf);
 
             return std::monostate {};
         }

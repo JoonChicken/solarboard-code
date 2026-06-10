@@ -19,9 +19,7 @@ namespace seds {
         ODR_CONFIG = 0x37,
     };
 
-    BMP581::BMP581(I2CDevice&& device) :
-        device(std::move(device)) {
-    }
+    BMP581::BMP581(I2CDevice&& device) :  device(std::move(device)) {}
 
     Expected<BMP581> BMP581::create(I2CDevice&& device) {
         BMP581 bmp581(std::move(device));
@@ -34,16 +32,16 @@ namespace seds {
         // enter normal mode
         TRY(bmp581.device.write_be_register<uint8_t>(
             BMP581Register::ODR_CONFIG,
-            0x01 // normal mode
+            (0x6 << 2) | 0x01 // normal mode, 140 hz (max possible with oversampling)
         ));
 
         // try to set config for reading pressure 
         TRY(bmp581.device.write_be_register<uint8_t>(
             BMP581Register::OSR_CONFIG,
-            0b01010000 // temp oversampling x1, pressure oversampling x4 (standard resolution), pressure reading on 
+            0b01011000 // temp oversampling x1, pressure oversampling x8, pressure reading on 
         ));
         
-
+        ESP_LOGI(TAG, "Creating real BMP581");
         return bmp581;
     }
 

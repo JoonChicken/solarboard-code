@@ -1,4 +1,4 @@
-idf_component_register(SRCS "solarboard/solarboard.cpp" "sd.cpp" "main.cpp"
+idf_component_register(SRCS "sd.cpp" "main.cpp"
                     "i2c/I2C.cpp"
                     "i2c/BMP581.cpp"
                     "i2c/BMI323.cpp"

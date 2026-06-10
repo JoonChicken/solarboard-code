@@ -2,6 +2,7 @@
 
 #include <expected>
 
+#include "driver/gpio.h"
 #include "esp_err.h"
 #include "errors.h"
 #include "esp_log.h"
@@ -18,12 +19,18 @@
 namespace seds {
     using namespace seds::errors;
 
+    const gpio_num_t MAIN_CONT = GPIO_NUM_18;
+    const gpio_num_t DROGUE_CONT = GPIO_NUM_19;
+    const gpio_num_t PIEZO = GPIO_NUM_21;
+    const gpio_num_t DROGUE_CHUTE = GPIO_NUM_22;
+    const gpio_num_t MAIN_CHUTE = GPIO_NUM_23;
+
     class FlightComputer {
     private:
         static constexpr size_t buf_len = MOUNT_POINT_LEN + 1 + 3 + 4 + 4 + 1;
     public:
-        BMP581 baro1;
-        BMP581 baro2;
+        std::shared_ptr<Barometer> baro1;
+        std::shared_ptr<Barometer> baro2;
         // fix : SegmentDisplay display;
         BMI323 imu;
         HighGAccel high_g_accel;
@@ -36,5 +43,7 @@ namespace seds {
         Expected<std::monostate> init(void);
  
         void process(uint32_t times, bool endless);
+
+        static float pressure_to_altitude(float pressure);
     };
 }
