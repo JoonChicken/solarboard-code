@@ -66,6 +66,7 @@ namespace seds {
         }
 
         static Expected<SDCard> create();
+        static Expected<SDCard> create_with_existing_spi_bus();
 
         Expected<std::monostate> create_file(const char* path, const uint8_t* data, size_t length);
         Expected<std::monostate> create_file_numbered_name(const char* name, const char* ext,  const uint8_t* data, size_t length, char* filename, size_t buf_size);

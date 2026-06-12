@@ -10,11 +10,10 @@
 namespace seds {
     using namespace seds::errors;
 
-    struct CurrentSensData {
+    struct INAData {
         float vshunt;
         float vbus;
         float current;
-        float power;
     };
 
     class INA229Q1 {
@@ -93,6 +92,9 @@ namespace seds {
         bool is_connected();
 
         [[nodiscard]]
+        Expected<std::monostate> reset();
+
+        [[nodiscard]]
         Expected<std::monostate> set_adc_range(ADCRange range);
 
         [[nodiscard]]
@@ -114,18 +116,17 @@ namespace seds {
         Expected<std::monostate> set_max_current(float amps);
 
         [[nodiscard]]
-        Expected<CurrentSensData> read_INA229Q1();
+        Expected<INAData> read_INA229Q1();
 
     private:
         explicit INA229Q1(SPIDevice&& device);
 
         SPIDevice device;
 
+        const float shunt_multiplier = 13107.2e6;
+        const float current_divider = 2e19;
+
         ADCRange adc_range;
-        TempComp temp_comp;
-        Mode mode;
-        ConvTime conv_time;
-        SampleAvgCount avg_count;
         float shunt_resistor_val;
         float max_expected_current;
         float current_lsb;

@@ -91,28 +91,53 @@ namespace seds {
         ~SPIDevice();
 
 
-        /// Enum input into read/write function.
-        /// 
-        enum class Endianness { BIG, LITTLE };
-
         /// Generic write-read a byte buffer to the SPI bus.
         /// Bytes that were previously in the register are read back.
-        /// Read-only and Write-only versions not necessary for INA229
-        template<size_t ReadN, size_t WriteN>
-        Expected<std::array<uint8_t, ReadN>> write_read(
-            std::array<uint8_t, WriteN> const& write_buf
+        // template<size_t LenN>
+        // Expected<std::array<uint8_t, LenN>> write_read(
+        //     std::array<uint8_t, LenN> const& write_buf
+        // ) {
+        //     std::array<uint8_t, LenN> read_buf;
+
+        //     spi_transaction_t trans = {};
+        //     memset(&trans, 0, sizeof(trans));
+        //     trans.length = LenN * 8;  // # of bits, not bytes
+        //     trans.tx_buffer = (void *)(write_buf.data());
+        //     trans.rx_buffer = (void *)(read_buf.data());
+
+        //     ESP_TRY(
+        //         spi_device_transmit(this->handle(), &trans)
+        //     );
+
+        //     return read_buf;
+        // }
+
+        template<size_t LenN>
+        Expected<std::array<uint8_t, LenN>> write_read(
+            std::array<uint8_t, LenN> const& write_buf
         ) {
-            std::array<uint8_t, ReadN> read_buf;
 
-            spi_transaction_t trans = {
-                .length = WriteN * 8,  // # of bits, not bytes
-                .tx_buffer = write_buf,
-                .rx_buffer = read_buf
-            };
+            // Allocate DMA-safe buffers
+            uint8_t* dma_tx = (uint8_t*)heap_caps_malloc(LenN, MALLOC_CAP_DMA);
+            uint8_t* dma_rx = (uint8_t*)heap_caps_malloc(LenN, MALLOC_CAP_DMA);
 
-            ESP_TRY(
-                spi_device_transmit(this->handle(), &trans)
-            );
+            std::copy(write_buf.begin(), write_buf.end(), dma_tx);
+            
+            spi_transaction_t trans = {};
+            memset(&trans, 0, sizeof(trans));
+            trans.length = LenN * 8;  // # of bits, not bytes
+            trans.tx_buffer = dma_tx;
+            trans.rx_buffer = dma_rx;
+
+            esp_err_t err = spi_device_transmit(this->handle(), &trans);
+            if (err != ESP_OK) {
+                ESP_LOGE("INA229Q1", "SPI transmit failed!");
+            }            
+
+            std::array<uint8_t, LenN> read_buf = {0};
+            std::copy(dma_rx, dma_rx + LenN, read_buf.begin());
+            free(dma_tx);
+            free(dma_rx);
 
             return read_buf;
         }
@@ -127,18 +152,24 @@ namespace seds {
         Expected<ReadT> read_be_register(RegisterT const reg) {
             static_assert(std::is_arithmetic_v<ReadT>, "ReadT must be a number");
 
-            auto write_buf = std::array { static_cast<uint8_t>(reg) };
-            auto read_buf = TRY(this->write_read<sizeof(ReadT)>(write_buf));
+            uint8_t cmd_byte = static_cast<uint8_t>(reg) | 0x1; // read
+            auto write_buf = std::array<uint8_t, 1 + sizeof(ReadT)> { 0 };
+            write_buf[0] = cmd_byte;
+            auto read_buf = TRY(this->write_read<1 + sizeof(ReadT)>(write_buf));
 
-            return num::from_be_bytes<ReadT>(read_buf);
+            // Sensor reads always start with address bits, so the spi transaction
+            // returns a blank section in miso when the address is sent in mosi;
+            // hence the one index left shift in the read_buf
+            std::array<uint8_t, sizeof(ReadT)> formatted_read_buf;
+            std::copy(read_buf.begin() + 1, read_buf.end(), formatted_read_buf.begin());
+
+            return num::from_be_bytes<ReadT>(formatted_read_buf);
         }
 
         /// Write a big-endian number to the given register of this SPI device.
         ///
         /// To make it easier to keep track of register constants, you can pass in a custom register
         /// enum variant as long as it can be statically cast to a `uint8_t`.
-        ///
-        /// Shit dont work so :(
         template<typename WriteT, typename RegisterT>
         [[nodiscard]]
         Expected<std::monostate> write_be_register(RegisterT const reg, WriteT const new_value) {
@@ -148,10 +179,10 @@ namespace seds {
             };
 
             // Write new value's bytes into the write buffer.
-            std::ranges::copy(num::to_be_bytes(static_cast<uint32_t>(new_value)), &write_buf[1]);
+            std::ranges::copy(num::to_be_bytes(new_value), &write_buf[1]);
 
             // execute spi write-read, and discard all data read back
-            this->write_read<>(write_buf);
+            TRY(this->write_read<1 + sizeof(WriteT)>(write_buf));
 
             return std::monostate {};
         }

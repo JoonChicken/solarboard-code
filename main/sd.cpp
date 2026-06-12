@@ -87,6 +87,36 @@ Expected<SDCard> SDCard::create() {
     return SDCard();
 }
 
+Expected<SDCard> SDCard::create_with_existing_spi_bus() {  
+    host = SDSPI_HOST_DEFAULT();
+    host.max_freq_khz = 26000;
+    host_slot = (spi_host_device_t)host.slot;
+    
+    slot_config = {
+        .host_id = (spi_host_device_t)host.slot,
+        .gpio_cs = GPIO_NUM_10,
+        .gpio_cd = SDSPI_SLOT_NO_CD,
+        .gpio_wp = SDSPI_SLOT_NO_WP,
+        .gpio_int = GPIO_NUM_NC,
+        .gpio_wp_polarity = SDSPI_IO_ACTIVE_LOW,
+        .duty_cycle_pos = 0
+    };
+
+    mount_cfg = {
+        .format_if_mount_failed = false,//true,
+        .max_files = 5, //MAX_FILES,
+        .allocation_unit_size = 0,
+        .disk_status_check_enable = false,
+        .use_one_fat = false,
+    };
+
+    ESP_TRY(esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_cfg, &card));
+    ESP_LOGI(TAG, "fs mount successful");
+    sdmmc_card_print_info(stdout, card);
+
+    return SDCard();
+}
+
 struct log_args_inner {
     FILE* file;
     struct log_args args;

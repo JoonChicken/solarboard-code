@@ -11,6 +11,7 @@ namespace seds {
         spi_bus_config.mosi_io_num = MOSI_IO_NUM;
         spi_bus_config.miso_io_num = MISO_IO_NUM;
         spi_bus_config.sclk_io_num = SCLK_IO_NUM;
+        spi_bus_config.max_transfer_sz = 128 * 1024; // needed for SD Card??
 
         // SPI 0 & 1 unusable, only 2 available  
         ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &spi_bus_config, SPI_DMA_CH_AUTO));
@@ -40,12 +41,12 @@ namespace seds {
     SPIDevice::SPIDevice(std::shared_ptr<SPI> bus, gpio_num_t select_pin)
         : bus(std::move(bus)),
           select_pin(select_pin) {
+        // address/cmd bits not used; we just shove the addr and r/w into the buffer
         spi_device_interface_config_t spi_dev_config = {};
-        spi_dev_config.address_bits = 6;                     // reg address
         spi_dev_config.mode = 0b01;                          // CPOL, CPHA !! INA229-specific !!
         spi_dev_config.clock_speed_hz = SPI_MASTER_FREQ_10M; // 10MHz max for INA229Q1
         spi_dev_config.spics_io_num = select_pin;            // cs pin #
-        spi_dev_config.queue_size = 8;                        // idk how much to give it
+        spi_dev_config.queue_size = 16;                      // idk how much to give it
 
         ESP_ERROR_CHECK(
             spi_bus_add_device(DEFAULT_HOST, &spi_dev_config, &this->dev_handle)
