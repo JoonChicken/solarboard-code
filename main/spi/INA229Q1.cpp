@@ -37,7 +37,7 @@ namespace seds {
     };
 
     // List of some maybe useful register masks
-    enum class INA229Q1Masks : uint32_t {
+    enum class INA229Q1Mask : uint32_t {
         // CONFIG register                                 ╶┐
         RST_msk        = (1 << 15),  // 15th bit            │
         TEMPCOMP_msk   = (1 << 5),   // 5th bit             │
@@ -49,7 +49,7 @@ namespace seds {
         VTCT_msk       = 0b0000000000111000,  // [5:3]      │
         AVG_msk        = 0b0000000000000111,  // [2:0]      │
         // SHUNT_CAL register                               │
-        SHUNT_msk      = 0b0111111111111111,  // [14:0]     │
+        SHUNT_CAL_msk  = 0b0111111111111111,  // [14:0]     │
         // SHUNT_TEMPCO register                            │
         TEMPCO_msk     = 0b0011111111111111,  // [13:0]     │
         //                                                 ╶┘
@@ -95,21 +95,20 @@ namespace seds {
         ina.reset();
 
         // Set configuration after write in case of failure
-        ina.set_adc_range(ADCRange::_NARROW);
-        ina.set_temp_comp(TempComp::_ON);
-        ina.set_conv_time(ConvTime::_1052us);
-        ina.set_avg_count(SampleAvgCount::_1);
-
-        ina.set_mode(Mode::_SHUTDOWN);
-        ina.shunt_resistor_val = 0.0;
-        ina.max_expected_current = 0.0;
-        ina.current_lsb = 0.0;
+        TRY(ina.set_adc_range(ADCRange::_NARROW));
+        TRY(ina.set_temp_comp(TempComp::_ON));
+        // TRY(ina.set_conv_time(ConvTime::_1052us);  // already set to this value on reset
+        // TRY(ina.set_avg_count(SampleAvgCount::_1); // already set to this value on reset
+        // TRY(ina.set_mode(Mode::_CONT_T_SV_BV); // already set to this value on reset
+        ina.shunt_resistor_val = 1.0;
+        ina.max_expected_current = 1.0;
+        ina.current_lsb = 1.0;
 
         // pause
         vTaskDelay(pdMS_TO_TICKS(10));
         
         ESP_LOGI("INA229Q1", "INA229Q1 created. Make sure to configure this sensor\n\
-                  especially the mode, shunt resistance, and max current values as they are\n\
+                  especially the shunt resistance and max current values as they are\n\
                   initially set to invalid values.");
 
         return ina;
@@ -119,13 +118,13 @@ namespace seds {
     bool INA229Q1::is_connected() {
         constexpr uint16_t dev_id_contents = 0x2291;
 
-        auto result = this->device.read_be_register<uint32_t>(INA229Q1Register::DEVICE_ID);
+        auto result = this->device.read_be_register<uint16_t>(INA229Q1Register::DEVICE_ID);
         uint16_t result_val = 0;
         if (result.has_value()) {
-            result_val = result.value() >> 16;
-            ESP_LOGE("INA229Q1", "dev id: 0x%X", (uint16_t)(result_val));
+            result_val = result.value();
+            ESP_LOGE("INA229Q1", "device id: 0x%X", (uint16_t)(result_val));
         } else {
-            ESP_LOGE("INA229Q1", "dev id read failed");
+            ESP_LOGE("INA229Q1", "device id read failed");
         }
 
         if (!result.has_value() || (uint16_t)(result_val) != dev_id_contents) {
@@ -138,12 +137,26 @@ namespace seds {
 
 
     Expected<std::monostate> INA229Q1::reset() {
+        // read current register contents
+        uint16_t regval = TRY(
+            this->device.read_be_register<uint16_t>(
+                INA229Q1Register::CONFIG
+            )
+        );
+
+        // set reset bit to 1 (auto clears when reset)
+        regval |= static_cast<uint16_t>(INA229Q1Mask::RST_msk);
+
+        // write new reg
         TRY(
             this->device.write_be_register<uint16_t>(
                 INA229Q1Register::CONFIG,
-                (static_cast<uint32_t>(0x1) << 15)
+                regval
             )
         );
+
+        // wait just to be safe; don't know if I actually need this
+        vTaskDelay(pdMS_TO_TICKS(20));
 
         return std::monostate {};
     }
@@ -151,11 +164,22 @@ namespace seds {
 
     Expected<std::monostate> INA229Q1::set_adc_range(ADCRange range) {
         this->adc_range = range;
-        
+
+        // read current register contents and clear bits
+        uint16_t regval = TRY(
+            this->device.read_be_register<uint16_t>(
+                INA229Q1Register::CONFIG
+            )
+        ) & ~static_cast<uint16_t>(INA229Q1Mask::ADCRANGE_msk);
+
+        // put in new bit
+        regval |= static_cast<uint16_t>(range) << 4;
+
+        // write new reg
         TRY(
             this->device.write_be_register<uint16_t>(
                 INA229Q1Register::CONFIG,
-                (static_cast<uint32_t>(range) << 4) & (static_cast<uint32_t>(INA229Q1Masks::ADCRANGE_msk))
+                regval
             )
         );
 
@@ -164,10 +188,21 @@ namespace seds {
 
 
     Expected<std::monostate> INA229Q1::set_temp_comp(TempComp temp_comp) {
+        // read current register contents and clear bits
+        uint16_t regval = TRY(
+            this->device.read_be_register<uint16_t>(
+                INA229Q1Register::CONFIG
+            )
+        ) & ~static_cast<uint16_t>(INA229Q1Mask::TEMPCOMP_msk);
+
+        // put in new bit
+        regval |= static_cast<uint16_t>(temp_comp) << 5;
+        
+        // write new reg
         TRY(
             this->device.write_be_register<uint16_t>(
                 INA229Q1Register::CONFIG,
-                (static_cast<uint32_t>(temp_comp) << 5) & (static_cast<uint32_t>(INA229Q1Masks::TEMPCOMP_msk))
+                regval
             )
         );
 
@@ -176,10 +211,20 @@ namespace seds {
 
 
     Expected<std::monostate> INA229Q1::set_mode(Mode mode) {
+        // read current register contents and clear bits
+        uint16_t regval = TRY(
+            this->device.read_be_register<uint16_t>(
+                INA229Q1Register::ADC_CONFIG
+            )
+        ) & ~static_cast<uint16_t>(INA229Q1Mask::MODE_msk);
+
+        // put in new bit
+        regval |= static_cast<uint16_t>(mode) << 12;
+
         TRY(
             this->device.write_be_register<uint16_t>(
                 INA229Q1Register::ADC_CONFIG,
-                (static_cast<uint32_t>(mode) << 12) & (static_cast<uint32_t>(INA229Q1Masks::MODE_msk))
+                regval
             )
         );
 
@@ -191,22 +236,25 @@ namespace seds {
     /// - VSHUNT
     /// - TEMP (for temp compensation)
     Expected<std::monostate> INA229Q1::set_conv_time(ConvTime conv_time) {
-        TRY(  // VBUS
-            this->device.write_be_register<uint16_t>(
-                INA229Q1Register::ADC_CONFIG,
-                (static_cast<uint32_t>(conv_time) << 9) & static_cast<uint32_t>(INA229Q1Masks::VBUSCT_msk)
+        // read register contents and clear space
+        uint16_t regval = TRY(
+            this->device.read_be_register<uint16_t>(
+                INA229Q1Register::ADC_CONFIG
             )
-        );
-        TRY(  // VSHUNT
+        ) & ~(static_cast<uint16_t>(INA229Q1Mask::VBUSCT_msk) |
+              static_cast<uint16_t>(INA229Q1Mask::VSHCT_msk) |
+              static_cast<uint16_t>(INA229Q1Mask::VTCT_msk));
+
+        // enter new values
+        regval |= (static_cast<uint16_t>(conv_time) << 9 |
+                   static_cast<uint16_t>(conv_time) << 6 |
+                   static_cast<uint16_t>(conv_time) << 3);
+
+        // write new reg
+        TRY(
             this->device.write_be_register<uint16_t>(
                 INA229Q1Register::ADC_CONFIG,
-                (static_cast<uint32_t>(conv_time) << 6) & static_cast<uint32_t>(INA229Q1Masks::VSHCT_msk)
-            )
-        );
-        TRY(  // TEMP
-            this->device.write_be_register<uint16_t>(
-                INA229Q1Register::ADC_CONFIG,
-                (static_cast<uint32_t>(conv_time) << 3) & static_cast<uint32_t>(INA229Q1Masks::VTCT_msk)
+                regval
             )
         );
 
@@ -215,10 +263,21 @@ namespace seds {
 
 
     Expected<std::monostate> INA229Q1::set_avg_count(SampleAvgCount avg_count) {
+        // read current value in reg & clear space
+        uint16_t regval = TRY(
+            this->device.read_be_register<uint16_t>(
+                INA229Q1Register::ADC_CONFIG
+            )
+        ) & ~static_cast<uint16_t>(INA229Q1Mask::AVG_msk);
+
+        // put in new val
+        regval |= (static_cast<uint16_t>(avg_count) & static_cast<uint16_t>(INA229Q1Mask::AVG_msk));
+
+        // write new reg contents
         TRY(
             this->device.write_be_register<uint16_t>(
                 INA229Q1Register::ADC_CONFIG,
-                static_cast<uint32_t>(avg_count) & static_cast<uint32_t>(INA229Q1Masks::AVG_msk)
+                regval
             )
         );
 
@@ -232,6 +291,42 @@ namespace seds {
 
         uint16_t shuntcal = this->shunt_multiplier * this->current_lsb *
                             this->shunt_resistor_val * range_multiplier;
+
+        // check if number is too high to fit in register
+        if (shuntcal & ~static_cast<uint16_t>(INA229Q1Mask::SHUNT_CAL_msk)) {
+            ESP_LOGE("INA229Q1", "Shunt val set, but value made SHUNT_CAL invalid");
+            shuntcal &= static_cast<uint16_t>(INA229Q1Mask::SHUNT_CAL_msk);
+        } else {
+            ESP_LOGI("INA229Q1", "Shunt_val successfully set. SHUNT_CAL is valid.");
+        }
+
+        // set shunt calibration value based on this number
+        TRY(
+            this->device.write_be_register<uint16_t>(
+                INA229Q1Register::SHUNT_CAL,
+                static_cast<uint32_t>(shuntcal & static_cast<uint16_t>(INA229Q1Mask::SHUNT_CAL_msk))
+            )
+        );
+
+        return std::monostate {};
+    }
+
+
+    Expected<std::monostate> INA229Q1::set_max_current(float amps) {
+        this->max_expected_current = amps;
+        this->current_lsb = amps / this->current_divider;
+        int range_multiplier = this->adc_range == ADCRange::_NARROW ? 4 : 1;
+
+        uint16_t shuntcal = this->shunt_multiplier * this->current_lsb *
+                            this->shunt_resistor_val * range_multiplier;
+
+        // check if number is too high to fit in register
+        if (shuntcal & ~static_cast<uint16_t>(INA229Q1Mask::SHUNT_CAL_msk)) {
+            ESP_LOGE("INA229Q1", "Max current set, but value made SHUNT_CAL invalid");
+            shuntcal &= static_cast<uint16_t>(INA229Q1Mask::SHUNT_CAL_msk);
+        } else {
+            ESP_LOGI("INA229Q1", "Max_current successfully set. SHUNT_CAL is valid.");
+        }
         
         // set shunt calibration value based on this number
         TRY(
@@ -245,23 +340,14 @@ namespace seds {
     }
 
 
-    Expected<std::monostate> INA229Q1::set_max_current(float amps) {
-        this->max_expected_current = amps;
-        this->current_lsb = amps / this->current_divider;
-
-        int range_multiplier = this->adc_range == ADCRange::_NARROW ? 4 : 1;
-        uint16_t shuntcal = this->shunt_multiplier * this->current_lsb *
-                            this->shunt_resistor_val * range_multiplier;
-        
-        // set shunt calibration value based on this number
-        TRY(
-            this->device.write_be_register<uint16_t>(
-                INA229Q1Register::SHUNT_CAL,
-                static_cast<uint32_t>(shuntcal)
+    Expected<bool> INA229Q1::is_ready_for_read() {
+        uint16_t reg = TRY(
+            this->device.read_be_register<uint16_t>(
+                INA229Q1Register::DIAG_ALRT
             )
         );
 
-        return std::monostate {};
+        return reg & static_cast<uint16_t>(INA229Q1Mask::CNVRF_msk);
     }
 
 
@@ -284,8 +370,6 @@ namespace seds {
                 INA229Q1Register::CURRENT
             )
         );
-
-        printf("current_raw = %lX\n", current_raw);
 
         imu_data.current = (current_raw >> 4) * this->current_lsb;
 

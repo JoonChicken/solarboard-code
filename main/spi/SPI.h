@@ -121,6 +121,10 @@ namespace seds {
             uint8_t* dma_tx = (uint8_t*)heap_caps_malloc(LenN, MALLOC_CAP_DMA);
             uint8_t* dma_rx = (uint8_t*)heap_caps_malloc(LenN, MALLOC_CAP_DMA);
 
+            if (dma_tx == NULL || dma_rx == NULL) {
+                ESP_LOGE("SPI", "Mem alloc for write-read buffers failed.");
+            }
+
             std::copy(write_buf.begin(), write_buf.end(), dma_tx);
             
             spi_transaction_t trans = {};

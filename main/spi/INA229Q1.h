@@ -5,6 +5,7 @@
 #pragma once
 #include "SPI.h"
 #include <stdint.h>
+#include <expected>
 
 
 namespace seds {
@@ -116,6 +117,9 @@ namespace seds {
         Expected<std::monostate> set_max_current(float amps);
 
         [[nodiscard]]
+        Expected<bool> is_ready_for_read();
+
+        [[nodiscard]]
         Expected<INAData> read_INA229Q1();
 
     private:
@@ -124,7 +128,7 @@ namespace seds {
         SPIDevice device;
 
         const float shunt_multiplier = 13107.2e6;
-        const float current_divider = 2e19;
+        const float current_divider = 524288;
 
         ADCRange adc_range;
         float shunt_resistor_val;

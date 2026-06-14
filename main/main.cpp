@@ -97,16 +97,12 @@ extern "C" void app_main(void)
 
     ina1.set_shunt_val(0.191);
     ina1.set_max_current(0.21);
-    ina1.set_mode(seds::INA229Q1::Mode::_CONT_T_SV_BV);
     ina2.set_shunt_val(0.191);
     ina2.set_max_current(0.21);
-    ina2.set_mode(seds::INA229Q1::Mode::_CONT_T_SV_BV);
     ina3.set_shunt_val(0.191);
     ina3.set_max_current(0.21);
-    ina3.set_mode(seds::INA229Q1::Mode::_CONT_T_SV_BV);
     ina4.set_shunt_val(0.191);
     ina4.set_max_current(0.21);
-    ina4.set_mode(seds::INA229Q1::Mode::_CONT_T_SV_BV);
 
     // TO-DO! connect sd card module to the main SPI bus
     // seds::SDCard sd = unwrap(seds::SDCard::create_with_existing_spi_bus());    
@@ -139,9 +135,16 @@ extern "C" void app_main(void)
         //     ESP_LOGE(TAG, "imu data read failed");
         // }
         
+        while(!ina1.is_ready_for_read()) {}
         auto ina1_data_try = ina1.read_INA229Q1();
+
+        while(!ina2.is_ready_for_read()) {}
         auto ina2_data_try = ina1.read_INA229Q1();
+
+        while(!ina3.is_ready_for_read()) {}
         auto ina3_data_try = ina1.read_INA229Q1();
+
+        while(!ina4.is_ready_for_read()) {}
         auto ina4_data_try = ina1.read_INA229Q1();
 
         if (ina1_data_try.has_value()) {
@@ -164,8 +167,5 @@ extern "C" void app_main(void)
         } else {
             ESP_LOGE(TAG, "INA4 data read failed");
         }
-
-        vTaskDelay(pdMS_TO_TICKS(100)); // TO-DO: remove and time cycle based
-                                        // on query to current sensors
     }
 }
