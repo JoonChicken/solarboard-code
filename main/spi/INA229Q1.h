@@ -12,8 +12,7 @@ namespace seds {
     using namespace seds::errors;
 
     struct INAData {
-        float vshunt;
-        float vbus;
+        int32_t current_raw;
         float current;
     };
 
@@ -128,7 +127,7 @@ namespace seds {
         SPIDevice device;
 
         const float shunt_multiplier = 13107.2e6;
-        const float current_divider = 524288;
+        const int current_divider = 524288;
 
         ADCRange adc_range;
         float shunt_resistor_val;

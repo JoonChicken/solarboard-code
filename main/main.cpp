@@ -19,13 +19,38 @@
 #include "driver/i2c_master.h"
 #include "errors.h"
 #include "sd.h"
+#include <sys/time.h>
 
+
+// indicator LED pins
+#define BAROSTAT_GPIO GPIO_NUM_9
+#define CURRSTAT_GPIO GPIO_NUM_21
 
 // current sensor select pins
 #define CS_1 GPIO_NUM_4
 #define CS_2 GPIO_NUM_20
 #define CS_3 GPIO_NUM_1
 #define CS_4 GPIO_NUM_0
+
+// sd card cs pin
+#define SDSEL GPIO_NUM_10
+
+
+// SD Data stuff
+struct SolarBoardData {
+    int32_t time_ms;
+    seds::BarometerData baro_data;
+    seds::IMUData imu_data;
+    seds::INAData ina1_data;
+    seds::INAData ina2_data;
+    seds::INAData ina3_data;
+    seds::INAData ina4_data;
+};
+int SBDATA_SIZE = sizeof(SolarBoardData);
+
+// mount point, slash, 3 numbers, 'sundata', '.csv'
+static constexpr size_t buf_len = MOUNT_POINT_LEN + 1 + 3 + 7 + 4 + 1;
+char filename[buf_len] = MOUNT_POINT"/sundata.csv";
 
 
 static const char *TAG = "main";
@@ -40,8 +65,49 @@ float pressure_to_altitude(float pressure) {
 }
 
 
+FILE *get_next_available_file(int starting_num, char *header) {
+    // test different filenames
+    bool broke = false;
+    struct stat st;
+    for (int i = starting_num; i < 1000; i++) {
+        // should write SD functions for this
+        // TODO
+        // also improve interface so we dont have to do what we do in process()
+        snprintf(filename, buf_len, "%s/sundata%d.csv", MOUNT_POINT, i);
+        if (stat(filename, &st) == -1) {
+            // doesn't exist, we go with it
+            broke = true;
+            break;
+        }
+    } 
+    if (!broke) {
+        snprintf(filename, buf_len, "%s/sundata%d.csv", MOUNT_POINT, starting_num);
+    }
+    ESP_LOGI("main", "opening file: %s", filename);
+    FILE *f = fopen(filename, "a");
+    while (f == NULL) {
+        ESP_LOGE("main", "Failed to open file for appending");
+        f = fopen(filename, "a");
+    }
+    fprintf(f, header);
+    return f;
+}
+
+
+
 extern "C" void app_main(void)
 {
+    // reset pins that UART might have changed
+    gpio_reset_pin(CS_1);
+    gpio_reset_pin(CS_2);
+    gpio_reset_pin(CS_3);
+    gpio_reset_pin(CS_4);
+    gpio_reset_pin(BAROSTAT_GPIO);
+    gpio_reset_pin(CURRSTAT_GPIO);
+    gpio_reset_pin(SDSEL);
+
+
+    // initialize I2C bus and devices    
     auto i2c = seds::I2C::create();
     ESP_LOGI(TAG, "I2C initialized successfully");
 
@@ -61,9 +127,25 @@ extern "C" void app_main(void)
     }
 
 
+    // initialize SPI bus and devices
     auto spi = seds::SPI::create();
     ESP_LOGI(TAG, "SPI initialized successfully");
 
+
+    // also initialize SD card here, on the existing SPI bus
+    // more info here: https://docs.espressif.com/projects/esp-idf/en/stable/esp32c3/api-reference/peripherals/sdspi_share.html
+    // first, make sure all CS pins are set to idle state:
+    gpio_set_level(CS_1, 1);
+    gpio_set_level(CS_2, 1);
+    gpio_set_level(CS_3, 1);
+    gpio_set_level(CS_4, 1);
+    gpio_set_level(SDSEL, 1);
+
+    // then initialize the SD card
+    seds::SDCard sd = unwrap(seds::SDCard::create_with_existing_spi_bus());
+
+
+    // setup INA229Q1s
     seds::INA229Q1 ina1 = unwrap(seds::INA229Q1::create(unwrap(spi->get_device(GPIO_NUM_4))));
     vTaskDelay(pdMS_TO_TICKS(10));
     seds::INA229Q1 ina2 = unwrap(seds::INA229Q1::create(unwrap(spi->get_device(GPIO_NUM_20))));
@@ -72,28 +154,15 @@ extern "C" void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(10));
     seds::INA229Q1 ina4 = unwrap(seds::INA229Q1::create(unwrap(spi->get_device(GPIO_NUM_0))));
     vTaskDelay(pdMS_TO_TICKS(10));
-    if (ina1.is_connected()) {
-        ESP_LOGI(TAG, "ina1 connected!");
-    } else {
-        ESP_LOGE(TAG, "ina1 not connected!");
-    }
-    if (ina2.is_connected()) {
-        ESP_LOGI(TAG, "ina2 connected!");
-    } else {
-        ESP_LOGE(TAG, "ina2 not connected!");
-    }
 
-    if (ina3.is_connected()) {
-        ESP_LOGI(TAG, "ina3 connected!");
-    } else {
-        ESP_LOGE(TAG, "ina3 not connected!");
-    }
-
-    if (ina4.is_connected()) {
-        ESP_LOGI(TAG, "ina4 connected!");
-    } else {
-        ESP_LOGE(TAG, "ina4 not connected!");
-    }
+    if (ina1.is_connected()) ESP_LOGI(TAG, "ina1 connected!");
+    else ESP_LOGE(TAG, "ina1 not connected!");
+    if (ina2.is_connected()) ESP_LOGI(TAG, "ina2 connected!");
+    else ESP_LOGE(TAG, "ina2 not connected!");
+    if (ina3.is_connected()) ESP_LOGI(TAG, "ina3 connected!");
+    else ESP_LOGE(TAG, "ina3 not connected!");
+    if (ina4.is_connected()) ESP_LOGI(TAG, "ina4 connected!");
+    else ESP_LOGE(TAG, "ina4 not connected!");
 
     ina1.set_shunt_val(0.191);
     ina1.set_max_current(0.21);
@@ -104,68 +173,165 @@ extern "C" void app_main(void)
     ina4.set_shunt_val(0.191);
     ina4.set_max_current(0.21);
 
-    // TO-DO! connect sd card module to the main SPI bus
-    // seds::SDCard sd = unwrap(seds::SDCard::create_with_existing_spi_bus());    
     
+    // blink lights for funsies, then turn off to save power
+    gpio_set_direction(BAROSTAT_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_direction(CURRSTAT_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(BAROSTAT_GPIO, 1);
+    gpio_set_level(CURRSTAT_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    gpio_set_level(BAROSTAT_GPIO, 0);
+    gpio_set_level(CURRSTAT_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    gpio_set_level(BAROSTAT_GPIO, 1);
+    gpio_set_level(CURRSTAT_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    gpio_set_level(BAROSTAT_GPIO, 0);
+    gpio_set_level(CURRSTAT_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    gpio_set_level(BAROSTAT_GPIO, 1);
+    gpio_set_level(CURRSTAT_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    gpio_set_level(BAROSTAT_GPIO, 0);
+    gpio_set_level(CURRSTAT_GPIO, 0);
+
+
+    /*#region initialize sd output*/
+
+    char *header = "timestamp, current1, current2, current3, current4, accel x, accel y, accel z, degrees x, degrees y, degrees z, baro temp, baro pressure\n";
+    int current_file_number = 0;
+
+    FILE *f = get_next_available_file(current_file_number, header);
+
+    struct timeval tv_now;
+    gettimeofday(&tv_now, NULL);
+    int64_t last_flush_timestamp = (int64_t)tv_now.tv_sec * 1000L + (int64_t)tv_now.tv_usec / 1000L;
+    int64_t last_newfile_timestamp = (int64_t)tv_now.tv_sec * 1000L + (int64_t)tv_now.tv_usec / 1000L;
+
+
+    /*#endregion*/
+
+
+
     //Allow other core to finish initialization
     vTaskDelay(pdMS_TO_TICKS(100)); // esp32-c3 has only one core but ok
 
+    char FAKE_BUF[1000];
+
+    // TO-DO: make sure the current sensors are really reading once per ms
     while (true) {
-        // ESP_LOGI("main", "Conducting a read...");
+        // read time
+        gettimeofday(&tv_now, NULL);
+        int64_t time_ms = (int64_t)tv_now.tv_sec * 1000L + (int64_t)tv_now.tv_usec / 1000L;
 
-        // seds::BarometerData baro_data = { .baro_temp = 0, .pressure = 0 };
-        // seds::IMUData imu_data = { .ax = 0, .ay = 0, .az = 0, .gx = 0, .gy = 0, .gz = 0 };
 
-        // auto baro_data_try = barometer->read_data();
-        // auto imu_data_try = imu.read_imu();
+        // we can't tell the other core to flush it once the buffer is full
+        // since there's only one core, so we just push to sdcard every read,
+        // flush all data lingering in memory to the sdcard every 5 seconds,
+        // and start a new file every 30 min to stave off corruption
+        if (time_ms > 5000 + last_flush_timestamp) {
+            fflush(f); 
+            fsync(fileno(f));
+            last_flush_timestamp = time_ms;
+        }
+        if (time_ms > 1.8e6 + last_newfile_timestamp) { // 30 min
+            fflush(f); 
+            fsync(fileno(f));
+            fclose(f);
+            current_file_number++;
+            f = get_next_available_file(current_file_number, header);
+            last_newfile_timestamp = time_ms;
+        }
 
-        // if (baro_data_try.has_value()) {
-        //     baro_data = baro_data_try.value();
-        //     float altitude = pressure_to_altitude(baro_data.pressure);
-        //     printf("BARO TEMP: %.5f  BARO PRESSURE: %.5f  Converted altitude: %.5f\n", baro_data.baro_temp, baro_data.pressure, altitude);
-        // } else {
-        //     ESP_LOGE(TAG, "baro data read failed");
-        // }
 
-        // if (imu_data_try.has_value()) {
-        //     imu_data = imu_data_try.value();
-        //     printf("Ax: %.5f  Ay: %.5f  Az: %.5f\nGx: %.5f  Gy: %.5f  Gz: %.5f\n",
-        //            imu_data.ax, imu_data.ay, imu_data.az, imu_data.gx, imu_data.gy, imu_data.gz);
-        // } else {
-        //     ESP_LOGE(TAG, "imu data read failed");
-        // }
-        
+        // setup data stucts
+        seds::BarometerData baro_data = { .baro_temp = 0, .pressure = 0 };
+        seds::IMUData imu_data = { .ax = 0, .ay = 0, .az = 0, .gx = 0, .gy = 0, .gz = 0 };
+        seds::INAData ina1_data = { .current_raw = 0, .current = 0 };
+        seds::INAData ina2_data = { .current_raw = 0, .current = 0 };
+        seds::INAData ina3_data = { .current_raw = 0, .current = 0 };
+        seds::INAData ina4_data = { .current_raw = 0, .current = 0 };
+
+        // read all sensors
+        // first, wait for all the current sensors to be ready (conversion complete)
         while(!ina1.is_ready_for_read()) {}
-        auto ina1_data_try = ina1.read_INA229Q1();
-
         while(!ina2.is_ready_for_read()) {}
-        auto ina2_data_try = ina1.read_INA229Q1();
-
         while(!ina3.is_ready_for_read()) {}
-        auto ina3_data_try = ina1.read_INA229Q1();
-
         while(!ina4.is_ready_for_read()) {}
-        auto ina4_data_try = ina1.read_INA229Q1();
+        auto ina1_data_try = ina1.read_INA229Q1();
+        auto ina2_data_try = ina2.read_INA229Q1();
+        auto ina3_data_try = ina3.read_INA229Q1();
+        auto ina4_data_try = ina4.read_INA229Q1();
+        auto baro_data_try = barometer->read_data();
+        auto imu_data_try = imu.read_imu();
 
+        // get current sensor data first
         if (ina1_data_try.has_value()) {
-            printf("INA1 Current: %f\n", ina1_data_try.value().current);
+            ina1_data = ina1_data_try.value();
+            // printf("INA1 Current: %.10f\n", ina1_data_try.value().current);
         } else {
             ESP_LOGE(TAG, "INA1 data read failed");
         }
         if (ina2_data_try.has_value()) {
-            printf("INA2 Current: %f\n", ina2_data_try.value().current);
+            ina2_data = ina2_data_try.value();
+            // printf("INA2 Current: %.10f\n", ina2_data_try.value().current);
         } else {
             ESP_LOGE(TAG, "INA2 data read failed");
         }
         if (ina3_data_try.has_value()) {
-            printf("INA3 Current: %f\n", ina3_data_try.value().current);
+            ina3_data = ina3_data_try.value();
+            // printf("INA3 Current: %.10f\n", ina3_data_try.value().current);
         } else {
             ESP_LOGE(TAG, "INA3 data read failed");
         }
         if (ina4_data_try.has_value()) {
-            printf("INA4 Current: %f\n", ina4_data_try.value().current);
+            ina4_data = ina4_data_try.value();
+            // printf("INA4 Current: %.10f\n", ina4_data_try.value().current);
         } else {
             ESP_LOGE(TAG, "INA4 data read failed");
         }
+
+        // then the other sensors
+        float altitude = 0;
+        if (baro_data_try.has_value()) {
+            baro_data = baro_data_try.value();
+            // altitude = pressure_to_altitude(baro_data.pressure);
+            // printf("BARO TEMP: %.5f  BARO PRESSURE: %.5f  Converted altitude: %.5f\n", baro_data.baro_temp, baro_data.pressure, altitude);
+        } else {
+            ESP_LOGE(TAG, "baro data read failed");
+        }
+
+        if (imu_data_try.has_value()) {
+            imu_data = imu_data_try.value();
+            // printf("Ax: %.5f  Ay: %.5f  Az: %.5f\nGx: %.5f  Gy: %.5f  Gz: %.5f\n",
+                //    imu_data.ax, imu_data.ay, imu_data.az, imu_data.gx, imu_data.gy, imu_data.gz);
+        } else {
+            ESP_LOGE(TAG, "imu data read failed");
+        }
+        
+
+        // output all data to sd card
+        // SolarBoardData sbdata = {
+        //     .time_ms = (int32_t) time_ms,
+        //     .baro_data = baro_data,
+        //     .imu_data = imu_data,
+        //     .ina1_data = ina1_data,
+        //     .ina2_data = ina2_data,
+        //     .ina3_data = ina3_data,
+        //     .ina4_data = ina4_data
+        // };
+        
+        // should I compress the data??
+
+
+
+        // feed the dawg
+        vTaskDelay(1);
     }
+
+    ESP_LOGE("main", "If we get here, uh oh");
+    fclose(f);
 }
+
+
+

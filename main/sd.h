@@ -16,10 +16,10 @@
 
 #define EXAMPLE_MAX_CHAR_SIZE 64
 const uint32_t MAX_FILES = 10; // ?
-const gpio_num_t PIN_NUM_MOSI = (gpio_num_t)13;
-const gpio_num_t PIN_NUM_MISO = (gpio_num_t)12; 
-const gpio_num_t PIN_NUM_CLK = (gpio_num_t)14; 
-const gpio_num_t PIN_NUM_CS = (gpio_num_t)5; 
+const gpio_num_t PIN_NUM_MOSI = GPIO_NUM_7;
+const gpio_num_t PIN_NUM_MISO = GPIO_NUM_2; 
+const gpio_num_t PIN_NUM_CLK = GPIO_NUM_6; 
+const gpio_num_t PIN_NUM_CS = GPIO_NUM_10; 
 
 const size_t SAFE_DMA_BUF_PREFERRED_KB = 32;
 const size_t chunk_bytes = SAFE_DMA_BUF_PREFERRED_KB * 1024;

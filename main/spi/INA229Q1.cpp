@@ -97,7 +97,7 @@ namespace seds {
         // Set configuration after write in case of failure
         TRY(ina.set_adc_range(ADCRange::_NARROW));
         TRY(ina.set_temp_comp(TempComp::_ON));
-        // TRY(ina.set_conv_time(ConvTime::_1052us);  // already set to this value on reset
+        TRY(ina.set_conv_time(ConvTime::_4120us));  // already set to this value on reset
         // TRY(ina.set_avg_count(SampleAvgCount::_1); // already set to this value on reset
         // TRY(ina.set_mode(Mode::_CONT_T_SV_BV); // already set to this value on reset
         ina.shunt_resistor_val = 1.0;
@@ -304,7 +304,7 @@ namespace seds {
         TRY(
             this->device.write_be_register<uint16_t>(
                 INA229Q1Register::SHUNT_CAL,
-                static_cast<uint32_t>(shuntcal & static_cast<uint16_t>(INA229Q1Mask::SHUNT_CAL_msk))
+                static_cast<uint16_t>(shuntcal & static_cast<uint16_t>(INA229Q1Mask::SHUNT_CAL_msk))
             )
         );
 
@@ -332,7 +332,7 @@ namespace seds {
         TRY(
             this->device.write_be_register<uint16_t>(
                 INA229Q1Register::SHUNT_CAL,
-                static_cast<uint32_t>(shuntcal)
+                static_cast<uint16_t>(shuntcal)
             )
         );
 
@@ -352,25 +352,15 @@ namespace seds {
 
 
     Expected<INAData> INA229Q1::read_INA229Q1() {
-        seds::INAData imu_data = {.vshunt = 0, .vbus = 0, .current = 0};
+        seds::INAData imu_data = {.current_raw = 0, .current = 0};
 
-        // not really needed
-        // uint32_t vshunt_raw = TRY(
-        //     this->device.read_be_register<uint32_t>(
-        //         INA229Q1Register::VSHUNT
-        //     )
-        // );
-        // uint32_t vbus_raw = TRY(
-        //     this->device.read_be_register<uint32_t>(
-        //         INA229Q1Register::VBUS
-        //     )
-        // );
-        uint32_t current_raw = TRY(
+        int32_t current_raw = TRY(
             this->device.read_be_register<uint32_t>(
                 INA229Q1Register::CURRENT
             )
         );
 
+        imu_data.current_raw = current_raw >> 4;
         imu_data.current = (current_raw >> 4) * this->current_lsb;
 
         return imu_data;

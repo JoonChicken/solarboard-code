@@ -89,28 +89,26 @@ Expected<SDCard> SDCard::create() {
 
 Expected<SDCard> SDCard::create_with_existing_spi_bus() {  
     host = SDSPI_HOST_DEFAULT();
-    host.max_freq_khz = 26000;
-    host_slot = (spi_host_device_t)host.slot;
+    host.max_freq_khz = 1000; // 26000 was too fast for the controller
+    host.slot = SPI2_HOST;
     
-    slot_config = {
-        .host_id = (spi_host_device_t)host.slot,
-        .gpio_cs = GPIO_NUM_10,
-        .gpio_cd = SDSPI_SLOT_NO_CD,
-        .gpio_wp = SDSPI_SLOT_NO_WP,
-        .gpio_int = GPIO_NUM_NC,
-        .gpio_wp_polarity = SDSPI_IO_ACTIVE_LOW,
-        .duty_cycle_pos = 0
-    };
+    slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot_config.host_id = SPI2_HOST;
+    slot_config.gpio_cs = GPIO_NUM_10;
 
-    mount_cfg = {
-        .format_if_mount_failed = false,//true,
-        .max_files = 5, //MAX_FILES,
-        .allocation_unit_size = 0,
-        .disk_status_check_enable = false,
-        .use_one_fat = false,
-    };
+    mount_cfg = VFS_FAT_MOUNT_DEFAULT_CONFIG();
 
-    ESP_TRY(esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_cfg, &card));
+    esp_err_t err = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_cfg, &card);
+    if (err != ESP_OK) {
+        if (err == ESP_FAIL) {
+            ESP_LOGE(TAG, "Failed to mount filesystem. "
+                     "If you want the card to be formatted, set the CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED menuconfig option.");
+        } else {
+            ESP_LOGE(TAG, "Failed to initialize the card (%s). "
+                     "Make sure SD card lines have pull-up resistors in place.", esp_err_to_name(err));
+        }
+        ESP_TRY(err); // stupid
+    }
     ESP_LOGI(TAG, "fs mount successful");
     sdmmc_card_print_info(stdout, card);
 
