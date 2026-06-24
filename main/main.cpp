@@ -46,11 +46,12 @@ struct SolarBoardData {
     seds::INAData ina3_data;
     seds::INAData ina4_data;
 };
-int SBDATA_SIZE = sizeof(SolarBoardData);
+size_t SBDATA_SIZE = sizeof(SolarBoardData);
 
-// mount point, slash, 3 numbers, 'sundata', '.csv'
-static constexpr size_t buf_len = MOUNT_POINT_LEN + 1 + 3 + 7 + 4 + 1;
-char filename[buf_len] = MOUNT_POINT"/sundata.csv";
+// BEWARE OF THE 8.3 RULE OF FAT32
+// mount point, slash, 'sund', 3 numbers, '.raw'
+static constexpr size_t buf_len = MOUNT_POINT_LEN + 1 + 4 + 3 + 4 + 1;
+char mainfilename[buf_len] = MOUNT_POINT"/sund.raw";
 
 
 static const char *TAG = "main";
@@ -67,27 +68,30 @@ float pressure_to_altitude(float pressure) {
 
 FILE *get_next_available_file(int starting_num, char *header) {
     // test different filenames
+    char newfilename[buf_len];
     bool broke = false;
     struct stat st;
-    for (int i = starting_num; i < 1000; i++) {
+    for (uint8_t i = starting_num; i < 1000; i++) {
         // should write SD functions for this
         // TODO
         // also improve interface so we dont have to do what we do in process()
-        snprintf(filename, buf_len, "%s/sundata%d.csv", MOUNT_POINT, i);
-        if (stat(filename, &st) == -1) {
+        snprintf(newfilename, buf_len, "%s/sund%d.raw", MOUNT_POINT, i);
+        if (stat(newfilename, &st) == -1) {
             // doesn't exist, we go with it
             broke = true;
             break;
         }
     } 
     if (!broke) {
-        snprintf(filename, buf_len, "%s/sundata%d.csv", MOUNT_POINT, starting_num);
+        snprintf(newfilename, buf_len, "%s/sund%d.raw", MOUNT_POINT, starting_num);
     }
-    ESP_LOGI("main", "opening file: %s", filename);
-    FILE *f = fopen(filename, "a");
+    ESP_LOGI("main", "opening file: %s", newfilename);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    FILE *f = fopen(newfilename, "ab");
     while (f == NULL) {
-        ESP_LOGE("main", "Failed to open file for appending");
-        f = fopen(filename, "a");
+        ESP_LOGE("main", "Failed to open file for writing");
+        f = fopen(newfilename, "ab");
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
     fprintf(f, header);
     return f;
@@ -173,8 +177,32 @@ extern "C" void app_main(void)
     ina4.set_shunt_val(0.191);
     ina4.set_max_current(0.21);
 
-    
-    // blink lights for funsies, then turn off to save power
+
+
+
+    /*#region initialize sd output*/
+
+
+    char categories[] = "timestamp, current1, current2, current3, current4, accel x, accel y, accel z, degrees x, degrees y, degrees z, baro temp, baro pressure\n";
+    size_t HEADER_SIZE = SBDATA_SIZE + 1 + sizeof(categories);
+    // metadata number + newline char + sizeof header
+    char header[2 + 1 + sizeof(categories)];
+    snprintf(header, HEADER_SIZE, "%u\n%s", SBDATA_SIZE, categories);
+    int current_file_number = 0;
+
+    printf("%s\n", header);
+
+    FILE *f = get_next_available_file(current_file_number, header);
+
+    struct timeval tv_now;
+    gettimeofday(&tv_now, NULL);
+    int64_t last_flush_timestamp = (int64_t)tv_now.tv_sec * 1000L + (int64_t)tv_now.tv_usec / 1000L;
+    int64_t last_newfile_timestamp = (int64_t)tv_now.tv_sec * 1000L + (int64_t)tv_now.tv_usec / 1000L;
+
+
+    /*#endregion*/
+
+    // blink lights to indicate init complete, then turn off to save power
     gpio_set_direction(BAROSTAT_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_direction(CURRSTAT_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(BAROSTAT_GPIO, 1);
@@ -196,27 +224,13 @@ extern "C" void app_main(void)
     gpio_set_level(CURRSTAT_GPIO, 0);
 
 
-    /*#region initialize sd output*/
-
-    char *header = "timestamp, current1, current2, current3, current4, accel x, accel y, accel z, degrees x, degrees y, degrees z, baro temp, baro pressure\n";
-    int current_file_number = 0;
-
-    FILE *f = get_next_available_file(current_file_number, header);
-
-    struct timeval tv_now;
-    gettimeofday(&tv_now, NULL);
-    int64_t last_flush_timestamp = (int64_t)tv_now.tv_sec * 1000L + (int64_t)tv_now.tv_usec / 1000L;
-    int64_t last_newfile_timestamp = (int64_t)tv_now.tv_sec * 1000L + (int64_t)tv_now.tv_usec / 1000L;
-
-
-    /*#endregion*/
-
-
 
     //Allow other core to finish initialization
-    vTaskDelay(pdMS_TO_TICKS(100)); // esp32-c3 has only one core but ok
+    // vTaskDelay(pdMS_TO_TICKS(100)); // esp32-c3 has only one core but ok
 
     char FAKE_BUF[1000];
+
+    // int loopcount = 0;
 
     // TO-DO: make sure the current sensors are really reading once per ms
     while (true) {
@@ -233,6 +247,9 @@ extern "C" void app_main(void)
             fflush(f); 
             fsync(fileno(f));
             last_flush_timestamp = time_ms;
+            ESP_LOGI("main", "flushed to sdcard");
+            // printf("did %d write cycles in 5000 ms\n", loopcount);
+            // loopcount = 0;
         }
         if (time_ms > 1.8e6 + last_newfile_timestamp) { // 30 min
             fflush(f); 
@@ -241,7 +258,9 @@ extern "C" void app_main(void)
             current_file_number++;
             f = get_next_available_file(current_file_number, header);
             last_newfile_timestamp = time_ms;
+            ESP_LOGI("main", "starting new file");
         }
+        // loopcount++;
 
 
         // setup data stucts
@@ -292,7 +311,7 @@ extern "C" void app_main(void)
         }
 
         // then the other sensors
-        float altitude = 0;
+        // float altitude = 0;
         if (baro_data_try.has_value()) {
             baro_data = baro_data_try.value();
             // altitude = pressure_to_altitude(baro_data.pressure);
@@ -311,19 +330,19 @@ extern "C" void app_main(void)
         
 
         // output all data to sd card
-        // SolarBoardData sbdata = {
-        //     .time_ms = (int32_t) time_ms,
-        //     .baro_data = baro_data,
-        //     .imu_data = imu_data,
-        //     .ina1_data = ina1_data,
-        //     .ina2_data = ina2_data,
-        //     .ina3_data = ina3_data,
-        //     .ina4_data = ina4_data
-        // };
+        SolarBoardData sbdata = {
+            .time_ms = (int32_t) time_ms,
+            .baro_data = baro_data,
+            .imu_data = imu_data,
+            .ina1_data = ina1_data,
+            .ina2_data = ina2_data,
+            .ina3_data = ina3_data,
+            .ina4_data = ina4_data
+        };
         
-        // should I compress the data??
-
-
+        // Write data in raw bits
+        fwrite(&sbdata, SBDATA_SIZE, 1, f);
+        
 
         // feed the dawg
         vTaskDelay(1);
